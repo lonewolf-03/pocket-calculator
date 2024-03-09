@@ -1,0 +1,259 @@
+#!/bin/python3
+
+import tkinter as tk
+import os
+
+class InvalidInput(Exception):
+    pass
+
+class Postfix:
+    def __init__(self, expression):
+        self.operations = {'+': float.__add__, '-': float.__sub__, '/': float.__truediv__, '*': float.__mul__,
+                           '^': float.__pow__}
+        self.expression = []
+        for c in expression: # only to get rid of spaces
+            if c != '' and not c.isspace():
+                self.expression.append(c)
+
+        self.postfix_expression = []
+        self._conv2postfix()
+
+    def _conv2postfix(self):
+        postfix = []
+        operators = []
+        operand = ''
+        for i in range(len(self.expression)):
+            if self.expression[i] == '(':
+                operators.append(self.expression[i])
+            elif self.expression[i] == ')':
+                self.postfix_expression.append(operand)
+                operand = ''
+                while operators[-1] != '(':
+                    self.postfix_expression.append(operators.pop())
+                operators.pop()
+            elif self.expression[i].isnumeric():
+                operand += self.expression[i]
+            elif self.expression[i] in self.operations:
+                if operand != '' and operand != '+' and operand != '-':
+                    self.postfix_expression.append(operand)
+                    operand = ''
+
+                if (i == 0) or ((self.expression[i] == '+') or (self.expression[i] == '-')) and ((self.expression[i-1] == '(') or (self.expression[i-1] == ')') or self.expression[i-1] in self.operations) and (operand == ''): # just to account for signed operands (it's guaranteed that self.expression[i-1] is not a space)
+                    operand += self.expression[i]
+                elif len(operators) == 0 or operators[-1] == '(' or Postfix._precedence(self.expression[i]) > Postfix._precedence(operators[-1]): # this covers the case when the operation (+ or -) is not a unary operator
+                    operators.append(self.expression[i])
+                else:
+                    if Postfix.associativity(self.expression[i]) == 'left':
+                        while len(operators) != 0 and (
+                                operators[-1] != '(' or Postfix._precedence(operators[-1]) <= Postfix._precedence(self.expression[i])):
+                            self.postfix_expression.append(operators.pop())
+                        operators.append(self.expression[i])
+                    else:
+                        operators.append(self.expression[i])
+
+            elif self.expression[i] == '.':
+                if (self.expression[i-1] != '.') and (self.expression[i-1] != ')'): # in this case it's preceeded by a digit, a right bracket, or an operation
+                    if not self.expression[i-1].isdigit():
+                        operand.zfill(len(operand)+1)
+                    else:
+                        operand += '.'
+
+            else:
+                raise InvalidInput
+
+
+
+        if operand != '':
+            self.postfix_expression.append(operand)
+        while len(operators) != 0:
+            self.postfix_expression.append(operators.pop())
+
+    def _precedence(operation):
+        from sys import maxsize
+        if operation == '+' or operation == '-':
+            return 1
+        elif operation == '*' or operation == '/':
+            return 2
+        elif operation == '^':
+            return 3
+        return maxsize
+
+    def associativity(operation):
+        return 'left' if (operation == '+') or (operation == '-') or (operation == '*') or (
+                    operation == '/') else 'right'
+
+    def evaluate(self):
+        i = 0
+        while len(self.postfix_expression) > 1:
+            if self.postfix_expression[i] in self.operations:
+                if Postfix.associativity(self.postfix_expression[i]) == 'left':
+                    op_index = i
+                    index1 = i - 2
+                    index2 = i - 1
+                    operand1 = float(self.postfix_expression[index1])
+                    operand2 = float(self.postfix_expression[index2])
+                    operation = self.operations[self.postfix_expression[op_index]]
+                    result = operation(operand1, operand2)
+                    self.postfix_expression.pop(op_index)
+                    self.postfix_expression.pop(index2)
+                    self.postfix_expression.pop(index1)
+                    self.postfix_expression.insert(index1, result)
+                    i = index1
+                else:
+                    op_index = i
+                    index1 = i - 1
+                    index2 = i - 2
+                    operand1 = float('{:.3f}'.format(self.postfix_expression[index2]))
+                    operand2 = float('{:.3f}'.format(self.postfix_expression[index1]))
+                    operation = self.operations[self.postfix_expression[op_index]]
+                    result = operation(operand1, operand2)
+                    self.postfix_expression.pop(op_index)
+                    self.postfix_expression.pop(index1)
+                    self.postfix_expression.pop(index2)
+                    self.postfix_expression.insert(index2, result)
+                    i = index2
+            i += 1
+        return self.postfix_expression[0]
+
+
+class PocketCalc(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title('Pocket Calculator')
+        self.geometry('300x300')
+        self.resizable(False, False)
+        imgPath = os.path.join(os.getcwd(), "lovepik-calculator-icon-free-vector-illustration-material-png-image_401495032_wh1200.png")
+        self.call('wm','iconphoto',self._w, tk.PhotoImage(file=imgPath))
+
+        self.input_var = tk.StringVar()
+        self.input = ''
+        
+        validate_command = self.register(self.reject_invalid_input)
+        self.entry = tk.Entry(self, font=('Norasi', '23', 'bold'), textvariable=self.input_var, validatecommand=(validate_command, '%d', '%S'), validate='all')
+        self.entry.bind('<Return>', self.concatenate_input)
+        self.entry.pack(side='top', fill='both')
+        self.obsid = self.input_var.trace('w', self.add)
+
+        b_width = 30  # button width
+        b_height = 46  # button height
+        self.buttons = {}
+        self.numbers_frame = tk.Frame(self)
+
+        for i in range(10):
+            button = tk.Button(self.numbers_frame, text=str(i), activebackground='black', activeforeground='green',
+                               width=b_width, height=b_height, image=tk.PhotoImage(width=1, height=1),
+                               compound='c')  # used Invisible PhotoIMage so that width and height of button will be interpreted in pixels
+            button.bind('<Button-1>', self.concatenate_input)
+            button.grid(row=i // 3, column=i % 3)
+            self.buttons[i] = button
+
+        self.point = tk.Button(self.numbers_frame, image=tk.PhotoImage(width=1, height=1), text='.',
+                               activebackground='black', activeforeground='green',
+                               width=b_width, height=b_height, compound='c')
+        self.point.bind('<Button-1>', self.concatenate_input)
+        self.point.grid(row=3, column=1)
+        self.buttons['.'] = self.point
+
+        self.clear = tk.Button(self.numbers_frame, image=tk.PhotoImage(width=1, height=1), text='C',
+                               activebackground='black', activeforeground='green',
+                               width=b_width, height=b_height, compound='c')
+        self.clear.bind('<Button-1>', self.clear_input)
+        self.clear.grid(row=3, column=2)
+        self.buttons['C'] = self.clear
+
+        self.frame2 = tk.Frame(self)
+
+        self.plus = tk.Button(self.frame2, image=tk.PhotoImage(width=1, height=1), text='+', activebackground='black',
+                              activeforeground='green',
+                              width=b_width, height=b_height, compound='c')
+        self.plus.bind('<Button-1>', self.concatenate_input)
+        self.plus.grid(row=0, column=0)
+        self.buttons['plus'] = self.plus
+
+        self.minus = tk.Button(self.frame2, image=tk.PhotoImage(width=1, height=1), text='-', activebackground='black',
+                               activeforeground='green',
+                               width=b_width, height=b_height, compound='c')
+        self.minus.bind('<Button-1>', self.concatenate_input)
+        self.minus.grid(row=0, column=1)
+        self.buttons['minus'] = self.minus
+
+        self.multiply = tk.Button(self.frame2, image=tk.PhotoImage(width=1, height=1), text='*',
+                                  activebackground='black', activeforeground='green',
+                                  width=b_width, height=b_height, compound='c')
+        self.multiply.bind('<Button-1>', self.concatenate_input)
+        self.multiply.grid(row=1, column=0)
+        self.buttons['multiply'] = self.multiply
+
+        self.divide = tk.Button(self.frame2, image=tk.PhotoImage(width=1, height=1), text='/', activebackground='black',
+                                activeforeground='green',
+                                width=b_width, height=b_height, compound='c')
+        self.divide.bind('<Button-1>', self.concatenate_input)
+        self.divide.grid(row=1, column=1)
+        self.buttons['divide'] = self.divide
+
+        self.left_bracket = tk.Button(self.frame2, image=tk.PhotoImage(width=1, height=1), text='(',
+                                      activebackground='black', activeforeground='green',
+                                      width=b_width, height=b_height, compound='c')
+        self.left_bracket.bind('<Button-1>', self.concatenate_input)
+        self.left_bracket.grid(row=2, column=0)
+        self.buttons['left bracket'] = self.left_bracket
+
+        self.right_bracket = tk.Button(self.frame2, image=tk.PhotoImage(width=1, height=1), text=')',
+                                       activebackground='black', activeforeground='green',
+                                       width=b_width, height=b_height, compound='c')
+        self.right_bracket.bind('<Button-1>', self.concatenate_input)
+        self.right_bracket.grid(row=2, column=1)
+        self.buttons['right bracket'] = self.right_bracket
+
+        self.equal = tk.Button(self.frame2, image=tk.PhotoImage(width=1, height=1), text='=', activebackground='black',
+                               activeforeground='green',
+                               width=b_width, height=b_height, compound='c')
+        self.equal.bind('<Button-1>', self.concatenate_input)
+        self.equal.grid(row=3, column=0)
+        self.buttons['equal'] = self.equal
+
+        self.numbers_frame.pack(side='left')
+        self.frame2.pack(side='right')
+
+        self.mainloop()
+
+    def concatenate_input(self, event):
+        obj = event.widget
+        if type(obj) == tk.Button and str(event.type) == '4' and obj != self.buttons['equal']:
+            self.entry.focus_set()
+            txt = obj.cget('text')
+            self.input += txt
+            self.input_var.set(self.input)
+            self.entry.icursor(tk.END)
+        elif (event.keysym == 'Return' or obj == self.buttons['equal']) and len(self.input) != 0:
+            try:
+                postfix = Postfix(self.input)
+                result = postfix.evaluate()
+                self.input_var.set(result)
+                self.entry.icursor(tk.END)
+                self.input = ''
+            except InvalidInput or ValueError:
+                self.input_var.set('ERROR!')
+                self.input = ''
+
+    def reject_invalid_input(self, attempt, txt):
+        if attempt == '1' or attempt == '-1':
+            if txt.isnumeric() or txt in ('.','+','-','/','^','(',')','*'):
+                return True
+            else:
+                return False
+        else:
+            return True
+
+
+    def add(self, *args):
+        self.input = self.input_var.get()
+
+    def clear_input(self, *args):
+        self.input = ''
+        self.entry.delete(0, last=tk.END)
+        self.input_var.set('')
+
+
+if __name__ == '__main__':
+    PocketCalc()
